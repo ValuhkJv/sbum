@@ -11,31 +11,54 @@ import {
   TextField,
 } from "@mui/material";
 
-const DetailPersetujuan = () => {
-  const { request_id } = useParams(); // request_id permintaan
+const DetailPersetujuanAdmin = () => {
+  const { created_at } = useParams(); // request_id permintaan
   const [details, setDetails] = useState([]); // Data detail barang
   const [status, setStatus] = useState(""); // Status aksi
   const [reason, setReason] = useState(""); // Alasan jika ditolak
+  const [activeIndex, setactiveIndex] = useState(null);
+  const token = localStorage.getItem("token"); // Ambil token dari local storage
+
   useEffect(() => {
+    console.log("Tanggal yang dikirim ke backend:", created_at);
+
     axios
-      .get(`http://localhost:5000/requests/${request_id}/admin-approval`)
+      .get(
+        `http://localhost:5000/requestsApprovalAdmin/details/${created_at}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // Sertakan token di header
+          },
+        }
+      )
       .then((res) => setDetails(res.data))
       .catch((err) => console.error(err));
-  }, [request_id]);
+  }, [created_at, token]);
 
-  const handleApproval = (approvalStatus) => {
+  const handleApproval = (approvalStatus, request_id) => {
     const payload = {
       status: approvalStatus,
-      rejection_reason: approvalStatus === "rejected_by_admin" ? reason : null,
+      rejection_reason:
+        approvalStatus === "Rejected by Staff SBUM" ? reason : null,
     };
 
     axios
       .put(
-        `http://localhost:5000/requests/${request_id}/head-approval`,
-        payload
+        `http://localhost:5000/requestsApprovalAdmin/${request_id}/admin-approval`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // Sertakan token di header
+          },
+        }
       )
       .then(() => alert("Permintaan berhasil diperbarui."))
       .catch((err) => console.error(err));
+  };
+
+  const handleRejectButton = (index) => {
+    setStatus("Rejected by Staff SBUM");
+    setactiveIndex(index);
   };
 
   return (
@@ -69,7 +92,9 @@ const DetailPersetujuan = () => {
                   <Button
                     variant="contained"
                     color="success"
-                    onClick={() => handleApproval("approved_by_admin")}
+                    onClick={() =>
+                      handleApproval("Approved by Staff SBUM", item.request_id)
+                    }
                   >
                     Setujui
                   </Button>
@@ -78,33 +103,39 @@ const DetailPersetujuan = () => {
                     variant="contained"
                     color="error"
                     style={{ marginLeft: "10px" }}
-                    onClick={() => setStatus("rejected_by_admin")}
+                    onClick={() => handleRejectButton(index)}
                   >
                     Tolak
                   </Button>
                 </div>
 
                 {/* Input Alasan Penolakan */}
-                {status === "rejected_by_admin" && (
-                  <div style={{ marginTop: "20px" }}>
-                    <TextField
-                      fullWrequest_idth
-                      label="Alasan Penolakan"
-                      variant="outlined"
-                      multiline
-                      rows={3}
-                      onChange={(e) => setReason(e.target.value)}
-                    />
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      style={{ marginTop: "10px" }}
-                      onClick={() => handleApproval("rejected_by_admin")}
-                    >
-                      Kirim
-                    </Button>
-                  </div>
-                )}
+                {status === "Rejected by Staff SBUM" &&
+                  activeIndex === index && (
+                    <div style={{ marginTop: "20px" }}>
+                      <TextField
+                        fullWidth
+                        label="Alasan Penolakan"
+                        variant="outlined"
+                        multiline
+                        rows={3}
+                        onChange={(e) => setReason(e.target.value)}
+                      />
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        style={{ marginTop: "10px" }}
+                        onClick={() =>
+                          handleApproval(
+                            "Rejected by Staff SBUM",
+                            item.request_id
+                          )
+                        }
+                      >
+                        Kirim
+                      </Button>
+                    </div>
+                  )}
               </TableCell>
             </TableRow>
           ))}
@@ -114,4 +145,4 @@ const DetailPersetujuan = () => {
   );
 };
 
-export default DetailPersetujuan;
+export default DetailPersetujuanAdmin;

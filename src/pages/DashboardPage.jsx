@@ -287,11 +287,7 @@ export default function Dashboard() {
                     <ListItemButton
                       sx={{ pl: 8, color: "white" }}
                       component={Link}
-                      to={
-                        role === 2
-                          ? "/request/approval"
-                          : "/request/approvaladmin"
-                      }
+                      to="/request/approvaladmin"
                     >
                       <ListItemText primary="Persetujuan" />
                     </ListItemButton>
@@ -345,7 +341,7 @@ export default function Dashboard() {
               </>
             )}
 
-            {(setRole === "kepalaunit" || role === "staf") && (
+            {setRole === "kepalaunit" && (
               <>
                 <ListItem disablePadding sx={{ color: "white" }}>
                   <ListItemButton onClick={handleClickPermintaan}>
@@ -413,7 +409,7 @@ export default function Dashboard() {
           <Route path="/DetailPermintaan/:date" element={<DetailRequest />} />
           <Route path="/request/approval" element={<RequestApproval />} />
           <Route
-            path="/requests/:request_id"
+            path="/requestsApprovHead/head-approval/details/:created_at"
             element={<RequestApprovDetail />}
           />
           <Route
@@ -421,7 +417,7 @@ export default function Dashboard() {
             element={<RequestApprovalAdmin />}
           />
           <Route
-            path="/requests/:request_id"
+            path="/requestsApprovalAdmin/details/:created_at"
             element={<RequestApprovDetailadmin />}
           />
         </Routes>

@@ -11,32 +11,53 @@ import {
   TextField,
 } from "@mui/material";
 
-const DetailPersetujuan = () => {
-  const { request_id } = useParams(); // request_id permintaan
+const DetailPersetujuanHead = () => {
+  const { created_at } = useParams(); // request_id permintaan
   const [details, setDetails] = useState([]); // Data detail barang
   const [status, setStatus] = useState(""); // Status aksi
   const [reason, setReason] = useState(""); // Alasan jika ditolak
-  console.log("request_id dari URL:", request_id);
+  const [activeIndex, setactiveIndex] = useState(null);
+  const token = localStorage.getItem("token"); // Ambil token dari local storage
+
   useEffect(() => {
+    console.log("Tanggal yang dikirim ke backend:", created_at);
+
     axios
-      .get(`http://localhost:5000/requests/${request_id}/head-approval`)
+      .get(
+        `http://localhost:5000/requestsApprovHead/head-approval/details/${created_at}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // Sertakan token di header
+          },
+        }
+      )
       .then((res) => setDetails(res.data))
       .catch((err) => console.error(err));
-  }, [request_id]);
+  }, [created_at, token]);
 
-  const handleApproval = (approvalStatus) => {
+  const handleApproval = (approvalStatus, request_id) => {
     const payload = {
       status: approvalStatus,
-      rejection_reason: approvalStatus === "rejected_by_head" ? reason : null,
+      rejection_reason: approvalStatus === "Rejected by Head" ? reason : null,
     };
 
     axios
       .put(
-        `http://localhost:5000/requests/${request_id}/head-approval`,
-        payload
+        `http://localhost:5000/requestsApprovHead/${request_id}/head-approval`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // Sertakan token di header
+          },
+        }
       )
       .then(() => alert("Permintaan berhasil diperbarui."))
       .catch((err) => console.error(err));
+  };
+
+  const handleRejectButton = (index) => {
+    setStatus("Rejected by Head");
+    setactiveIndex(index);
   };
 
   return (
@@ -70,7 +91,9 @@ const DetailPersetujuan = () => {
                   <Button
                     variant="contained"
                     color="success"
-                    onClick={() => handleApproval("approved_by_head")}
+                    onClick={() =>
+                      handleApproval("Approved by Head", item.request_id)
+                    }
                   >
                     Setujui
                   </Button>
@@ -79,17 +102,17 @@ const DetailPersetujuan = () => {
                     variant="contained"
                     color="error"
                     style={{ marginLeft: "10px" }}
-                    onClick={() => setStatus("rejected_by_head")}
+                    onClick={() => handleRejectButton(index)}
                   >
                     Tolak
                   </Button>
                 </div>
 
                 {/* Input Alasan Penolakan */}
-                {status === "rejected_by_head" && (
+                {status === "Rejected by Head" && activeIndex === index && (
                   <div style={{ marginTop: "20px" }}>
                     <TextField
-                      fullWrequest_idth
+                      fullWidth
                       label="Alasan Penolakan"
                       variant="outlined"
                       multiline
@@ -100,7 +123,9 @@ const DetailPersetujuan = () => {
                       variant="contained"
                       color="primary"
                       style={{ marginTop: "10px" }}
-                      onClick={() => handleApproval("rejected_by_head")}
+                      onClick={() =>
+                        handleApproval("Rejected by Head", item.request_id)
+                      }
                     >
                       Kirim
                     </Button>
@@ -115,4 +140,4 @@ const DetailPersetujuan = () => {
   );
 };
 
-export default DetailPersetujuan;
+export default DetailPersetujuanHead;

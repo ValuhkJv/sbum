@@ -12,7 +12,7 @@ import { styled } from "@mui/system";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const RequestApprovalAdmin = () => {
+const RequestApprovalHead = () => {
   const [requests, setRequests] = useState([]);
   const navigate = useNavigate();
   const division = localStorage.getItem("division_name"); // Divisi kepala unit
@@ -26,7 +26,7 @@ const RequestApprovalAdmin = () => {
 
   useEffect(() => {
     axios
-      .get(`http://localhost:5000/requests/head-approval?division=${division}`)
+      .get(`http://localhost:5000/requestsApprovHead/head-approval/${division}`)
       .then((res) => setRequests(res.data))
       .catch((err) => console.error(err));
   }, [division]);
@@ -61,7 +61,13 @@ const RequestApprovalAdmin = () => {
               <StyledTableCell>
                 <Button
                   variant="contained"
-                  onClick={() => navigate(`/requests/${req.request_id}`)}
+                  onClick={() => {
+                    navigate(
+                      `/requestsApprovHead/head-approval/details/${new Date(
+                        req.created_at
+                      ).toLocaleDateString("en-CA")}`
+                    );
+                  }}
                 >
                   Detail
                 </Button>
@@ -74,4 +80,4 @@ const RequestApprovalAdmin = () => {
   );
 };
 
-export default RequestApprovalAdmin;
+export default RequestApprovalHead;

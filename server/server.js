@@ -5,6 +5,7 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const authenticateToken = require("../middleware/auth");
 
 const app = express();
 const PORT = 5000;
@@ -82,7 +83,7 @@ app.post("/login", async (req, res) => {
 
     // Kirim respons
     res.json({
-      message: "Login berhasil",
+      message: "Login successfull",
       token: token,
       roles_id: users.roles_id, // Mengembalikan role untuk redirect di frontend
       user_id: users.user_id,
@@ -304,56 +305,104 @@ app.get("/requests/detail/:date", async (req, res) => {
 });
 
 //menampilkan daftar persetujuan kepala unit
-app.get("/requests/head-approval", async (req, res) => {
-  const { division } = req.query; // Divisi kepala unit dari localStorage
+app.get("/requestsApprovHead/head-approval/:division", async (req, res) => {
+  const { division } = req.params; // Divisi kepala unit dari localStorage
 
   try {
     const result = await db.query(
       `SELECT 
-    r.request_id,
-    u.user_id,
-    u.full_name,
-    COUNT(*) AS total_requests,
-    r.created_at,
-    d.division_name
-FROM 
-    requests r
-JOIN 
-    users u ON r.requested_by = u.user_id
-JOIN 
-     divisions d ON u.division_id = d.division_id
-WHERE 
-    d.division_name = $1 AND r.status = 'pending'
-GROUP BY 
-    r.request_id, u.user_id, u.full_name, r.created_at, d.division_name
-  ORDER BY
-    r.created_at DESC;`,
+        r.requested_by AS user_id,
+        u.full_name,
+        COUNT(DISTINCT r.request_id) AS total_requests,
+        r.created_at, 
+        d.division_name, 
+        r.status
+      FROM 
+        requests r
+      JOIN 
+        users u ON r.requested_by = u.user_id
+      JOIN 
+        divisions d ON u.division_id = d.division_id
+      WHERE 
+        d.division_name = $1 
+        AND r.status = 'pending'
+      GROUP BY 
+        r.requested_by, u.full_name, d.division_name, r.created_at, r.status
+      ORDER BY 
+        u.full_name, r.created_at DESC;`,
       [division]
     );
+    console.log(result.rows);
     res.json(result.rows);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Gagal mengambil data permintaan." });
+    console.error("Error fetching request details:", error.message);
+    res.status(500).json({ message: "Terjadi kesalahan pada server" });
   }
 });
 
 //menampilkan detail persetujuan kepala unit
-app.get("/requests/:request_id/head-approval", async (req, res) => {
-  const { request_id } = req.params; // Mengambil request_id dari parameter URL
+app.get(
+  "/requestsApprovHead/head-approval/details/:created_at",
+  authenticateToken,
+  async (req, res) => {
+    const { created_at } = req.params; // Tanggal dari frontend
+    const user_id = req.user.user_id; // Mengambil user_id dari sesi atau token autentikasi
+    console.log("User ID:", user_id);
+    console.log("Created At received by Backend:", created_at);
+    try {
+      // Ambil division_id dari user_id
+      const divisionResult = await db.query(
+        `
+        SELECT division_id
+        FROM users
+        WHERE user_id = $1;
+        `,
+        [user_id]
+      );
 
-  try {
-    const result = await db.query(
-      `
+      if (divisionResult.rows.length === 0) {
+        return res.status(404).json({
+          message: "User tidak ditemukan.",
+        });
+      }
+
+      const division_id = divisionResult.rows[0].division_id;
+
+      // Ambil semua request_id yang sesuai
+      const requestIdsResult = await db.query(
+        `
+         SELECT r.request_id, r.status
+        FROM requests r
+        JOIN users u ON r.requested_by = u.user_id
+        WHERE u.division_id = $1
+          AND r.status = 'pending'
+          AND r.created_at::date = $2;
+        `,
+        [division_id, created_at]
+      );
+
+      const requestIds = requestIdsResult.rows.map((row) => row.request_id);
+
+      console.log("Request IDs from first query:", requestIds);
+
+      if (requestIds.length === 0) {
+        return res.status(404).json({
+          message: "Tidak ada detail permintaan yang sesuai.",
+        });
+      }
+
+      const detailResult = await db.query(
+        `
       SELECT 
         r.request_id, 
         r.item_id, 
+        r.requested_by AS user_id,
+        u.full_name,
         i.item_name, 
         r.quantity, 
         r.reason, 
         r.status, 
         r.rejection_reason,
-        r.requested_by AS user_id,
-        u.full_name, 
         d.division_name AS user_division,
         r.created_at
       FROM 
@@ -365,99 +414,191 @@ app.get("/requests/:request_id/head-approval", async (req, res) => {
       JOIN
         divisions d ON u.division_id = d.division_id 
       WHERE 
-        r.request_id = $1
+        r.request_id = ANY($1::int[]);
       `,
-      [request_id]
-    );
+        [requestIds]
+      );
 
-    if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "Detail permintaan tidak ditemukan." });
+      console.log("Detail Result:", detailResult.rows);
+
+      if (detailResult.rows.length === 0) {
+        return res
+          .status(404)
+          .json({ message: "Detail permintaan tidak ditemukan." });
+      }
+
+      res.status(200).json(detailResult.rows); // Mengirimkan detail permintaan
+    } catch (error) {
+      console.error("Error fetching detail persetujuan:", error.message);
+      res.status(500).json({ message: "Terjadi kesalahan pada server." });
     }
-
-    res.status(200).json(result.rows); // Mengirimkan detail permintaan
-  } catch (error) {
-    console.error("Error fetching detail persetujuan:", error.message);
-    res.status(500).json({ message: "Terjadi kesalahan pada server." });
   }
-});
+);
 
 //mengupdate status disetujui atau ditolak kepala unit
-app.put("/requests/:request_id/head-approval", async (req, res) => {
+app.put("/requestsApprovHead/:request_id/head-approval", async (req, res) => {
   const { request_id } = req.params;
   const { status, rejection_reason } = req.body;
 
   try {
-    if (status === "rejected" && !rejection_reason) {
+    // Validasi input status
+    if (!["Approved by Head", "Rejected by Head"].includes(status)) {
+      return res.status(400).json({ message: "Status tidak valid." });
+    }
+
+    // Validasi alasan penolakan
+    if (
+      status === "Rejected by Head" &&
+      (!rejection_reason || rejection_reason.trim() === "")
+    ) {
       return res
         .status(400)
         .json({ message: "Alasan penolakan harus diisi jika ditolak." });
     }
 
+    // Ambil data permintaan
+    const request = await db.query(
+      `SELECT item_id, quantity,status FROM requests WHERE request_id = $1`,
+      [request_id]
+    );
+
+    if (request.rows.length === 0) {
+      return res.status(404).json({ message: "Permintaan tidak ditemukan." });
+    }
+
+    const { item_id, quantity, status: currentStatus } = request.rows[0];
+
+    // Cek jika permintaan sudah disetujui/ditolak sebelumnya
+    if (currentStatus !== "pending") {
+      return res
+        .status(400)
+        .json({ message: "Permintaan sudah diproses sebelumnya." });
+    }
+
+    // Update status permintaan
     await db.query(
       "UPDATE requests SET status = $1, rejection_reason = $2 WHERE request_id = $3 AND status = 'pending'",
       [status, rejection_reason || null, request_id]
     );
-    res.json({ message: "Persetujuan berhasil diperbarui." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Gagal memperbarui persetujuan." });
-  }
-});
 
-//menampilkan daftar persetujuan staff
-app.get("/requests/admin-approval", async (req, res) => {
-  try {
-    const result = await db.query(
-      `SELECT 
-        r.request_id,
-        u.user_id,
-        u.full_name,
-        COUNT(*) AS total_requests,
-        r.created_at,
-        d.division_name
-      FROM 
-        requests r
-      JOIN 
-        users u ON r.requested_by = u.user_id
-      JOIN 
-        divisions d ON u.division_id = d.division_id
-      WHERE 
-        r.status = 'approved_by_head' 
-      GROUP BY 
-        r.request_id, u.user_id, u.full_name, r.created_at, d.division_name
-      ORDER BY 
-        r.created_at DESC;`
-    );
-
-    res.json(result.rows);
+    // Jika ditolak, kembalikan stok barang
+    if (status === "Rejected by Head") {
+      await db.query(
+        `UPDATE items 
+       SET stock = stock + $1 
+       WHERE item_id = $2`,
+        [quantity, item_id]
+      );
+    }
+    res.json({ message: "Persetujuan kepala unit berhasil diperbarui." });
   } catch (error) {
     console.error(error);
     res
       .status(500)
-      .json({ message: "Gagal mengambil data permintaan yang disetujui." });
+      .json({ message: "Gagal memperbarui persetujuan kepala unit." });
+  }
+});
+
+//menampilkan daftar persetujuan staff
+app.get("/requestsApprovalAdmin/:division", async (req, res) => {
+  const { division } = req.params; // Divisi kepala unit dari localStorage
+
+  try {
+    const result = await db.query(
+      `SELECT 
+      r.requested_by AS user_id,
+      u.full_name,
+      COUNT(DISTINCT r.request_id) AS total_requests,
+      r.created_at, 
+      d.division_name,
+      r.status
+    FROM 
+      requests r
+    JOIN 
+      users u ON r.requested_by = u.user_id
+    JOIN 
+      divisions d ON u.division_id = d.division_id
+    WHERE 
+      d.division_name = $1 
+      AND r.status = 'Approved by Head'
+    GROUP BY 
+      r.requested_by, u.full_name, d.division_name, r.created_at, r.status
+    ORDER BY 
+      u.full_name, r.created_at DESC;`,
+      [division]
+    );
+    console.log(result.rows);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching request details:", error.message);
+    res.status(500).json({ message: "Terjadi kesalahan pada server" });
   }
 });
 
 //menampilkan detail persetujuan staff
-app.get("/requests/:request_id/admin-approval", async (req, res) => {
-  const { request_id } = req.params; // Mengambil request_id dari parameter URL
+app.get(
+  "/requestsApprovalAdmin/details/:created_at",
+  authenticateToken,
+  async (req, res) => {
+    const { created_at } = req.params; // Tanggal dari frontend
+    const user_id = req.user.user_id; // Mengambil user_id dari sesi atau token autentikasi
+    console.log("User ID:", user_id);
+    console.log("Created At received by Backend:", created_at);
+    try {
+      // Ambil division_id dari user_id
+      const divisionResult = await db.query(
+        `
+        SELECT division_id
+        FROM users
+        WHERE user_id = $1;
+        `,
+        [user_id]
+      );
 
-  try {
-    const result = await db.query(
-      `
+      if (divisionResult.rows.length === 0) {
+        return res.status(404).json({
+          message: "User tidak ditemukan.",
+        });
+      }
+
+      const division_id = divisionResult.rows[0].division_id;
+
+      // Ambil semua request_id yang sesuai
+      const requestIdsResult = await db.query(
+        `
+        SELECT r.request_id, r.status
+        FROM requests r
+        JOIN users u ON r.requested_by = u.user_id
+        WHERE u.division_id = $1
+          AND r.status = 'Approved by Head'
+          AND r.created_at::date = $2;
+        `,
+        [division_id, created_at]
+      );
+
+      const requestIds = requestIdsResult.rows.map((row) => row.request_id);
+
+      console.log("Request IDs from first query:", requestIds);
+
+      if (requestIds.length === 0) {
+        return res.status(404).json({
+          message: "Tidak ada detail permintaan yang sesuai.",
+        });
+      }
+
+      const detailResult = await db.query(
+        `
       SELECT 
         r.request_id, 
         r.item_id, 
+        r.requested_by AS user_id,
+        u.full_name,
         i.item_name, 
         r.quantity, 
         r.reason, 
         r.status, 
         r.rejection_reason,
-        r.requested_by AS user_id,
-        u.full_name, 
-        d.division_name,
+        d.division_name AS user_division,
         r.created_at
       FROM 
         requests r
@@ -468,118 +609,86 @@ app.get("/requests/:request_id/admin-approval", async (req, res) => {
       JOIN
         divisions d ON u.division_id = d.division_id 
       WHERE 
-        r.request_id = $1
+        r.request_id = ANY($1::int[]);
       `,
-      [request_id]
-    );
+        [requestIds]
+      );
 
-    if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "Detail permintaan tidak ditemukan." });
+      console.log("Detail Result:", detailResult.rows);
+
+      if (detailResult.rows.length === 0) {
+        return res
+          .status(404)
+          .json({ message: "Detail permintaan tidak ditemukan." });
+      }
+
+      res.status(200).json(detailResult.rows); // Mengirimkan detail permintaan
+    } catch (error) {
+      console.error("Error fetching detail persetujuan:", error.message);
+      res.status(500).json({ message: "Terjadi kesalahan pada server." });
     }
-
-    res.status(200).json(result.rows); // Mengirimkan detail permintaan
-  } catch (error) {
-    console.error("Error fetching detail persetujuan:", error.message);
-    res.status(500).json({ message: "Terjadi kesalahan pada server." });
   }
-});
+);
 
-app.put("/requests/:request_id/admin-approval", async (req, res) => {
-  const { request_id } = req.params;
-  const { status, rejection_reason } = req.body;
+app.put(
+  "/requestsApprovalAdmin/:request_id/admin-approval",
+  async (req, res) => {
+    const { request_id } = req.params;
+    const { status, rejection_reason } = req.body;
+    try {
+      if (status === "Rejected by Staff SBUM" && !rejection_reason) {
+        return res
+          .status(400)
+          .json({ message: "Alasan penolakan harus diisi jika ditolak." });
+      }
 
-  try {
-    if (status === "rejected_by_admin" && !rejection_reason) {
-      return res
-        .status(400)
-        .json({ message: "Alasan penolakan harus diisi jika ditolak." });
-    }
-    const result = await db.query(
-      `UPDATE 
+      // Ambil data permintaan untuk mendapatkan jumlah barang dan item_id
+      const request = await db.query(
+        `SELECT item_id, quantity FROM requests WHERE request_id = $1`,
+        [request_id]
+      );
+
+      if (request.rows.length === 0) {
+        return res.status(404).json({ message: "Permintaan tidak ditemukan." });
+      }
+      const req = await db.query(
+        `SELECT status FROM requests WHERE request_id = $1`,
+        [request_id]
+      );
+      console.log("Status saat ini:", req.rows[0]?.status);
+
+      const { item_id, quantity } = request.rows[0];
+
+      // Update status permintaan
+      await db.query(
+        `UPDATE 
       requests 
       SET 
       status = $1, rejection_reason = $2 
       WHERE 
-      request_id = $3 AND status = 'approved_by_head'`,
-      [status, rejection_reason || null, request_id]
-    );
+      request_id = $3 AND status = 'Approved by Head'`,
+        [status, rejection_reason || null, request_id]
+      );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        message: "Permintaan tidak ditemukan atau status tidak valid.",
-      });
+      // Jika ditolak, kembalikan stok barang
+      if (status === "Rejected by Staff SBUM") {
+        await db.query(
+          `UPDATE items 
+         SET stock = stock + $1 
+         WHERE item_id = $2`,
+          [quantity, item_id]
+        );
+      }
+
+      res.json({ message: "Persetujuan admin berhasil diperbarui." });
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ message: "Gagal memperbarui persetujuan oleh Admin." });
     }
-
-    res.json({ message: "Persetujuan admin berhasil diperbarui." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Gagal memperbarui persetujuan admin." });
   }
-});
-
-// Endpoint: Persetujuan Permintaan oleh Kepala Unit
-// app.put("/requests/approve/head/:request_id", async (req, res) => {
-//   const { request_id } = req.params;
-//   const { approved, rejection_reason } = req.body;
-
-//   try {
-//     let status = approved ? "Disetujui Kepala Unit" : "Ditolak Kepala Unit";
-
-//     await db.query(
-//       `UPDATE requests
-//        SET status = $1, rejection_reason = $2
-//        WHERE request_id = $3`,
-//       [status, rejection_reason || null, request_id]
-//     );
-
-//     res
-//       .status(200)
-//       .json({ message: "Status berhasil diperbarui oleh Kepala Unit" });
-//   } catch (error) {
-//     console.error("Error updating status:", error.message);
-//     res.status(500).json({ message: "Gagal memperbarui status" });
-//   }
-// });
-
-// Endpoint: Persetujuan Akhir oleh Admin SBUM
-// app.put("/requests/approve/admin/:request_id", async (req, res) => {
-//   const { request_id } = req.params;
-//   const { approved, rejection_reason } = req.body;
-
-//   try {
-//     // Pastikan status saat ini adalah "Disetujui Kepala Unit"
-//     const { rows } = await db.query(
-//       `SELECT status FROM requests WHERE request_id = $1`,
-//       [request_id]
-//     );
-
-//     if (rows.length === 0) {
-//       return res.status(404).json({ message: "Permintaan tidak ditemukan" });
-//     }
-
-//     if (rows[0].status !== "Disetujui Kepala Unit") {
-//       return res
-//         .status(400)
-//         .json({ message: "Permintaan belum disetujui oleh Kepala Unit" });
-//     }
-
-//     let status = approved ? "Disetujui Admin" : "Ditolak Admin";
-
-//     await db.query(
-//       `UPDATE requests
-//        SET status = $1, rejection_reason = $2
-//        WHERE request_id = $3`,
-//       [status, rejection_reason || null, request_id]
-//     );
-
-//     res.status(200).json({ message: "Status berhasil diperbarui oleh Admin" });
-//   } catch (error) {
-//     console.error("Error updating status:", error.message);
-//     res.status(500).json({ message: "Gagal memperbarui status" });
-//   }
-// });
+);
 
 ///CRUD MANAJEMEN BARANG
 // CREATE: Tambah Barang

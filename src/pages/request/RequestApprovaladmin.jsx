@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  Button,
   Table,
-  TableBody,
-  TableCell,
   TableHead,
   TableRow,
+  TableCell,
+  TableBody,
   Typography,
+  Button,
 } from "@mui/material";
 import { styled } from "@mui/system";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const RequestApprovalhead = () => {
+const RequestApprovalAdmin = () => {
   const [requests, setRequests] = useState([]);
   const navigate = useNavigate();
-  const division = localStorage.getItem("division_name"); // Divisi kepala unit
+  const division = localStorage.getItem("division_name");
 
   const StyledTableCell = styled(TableCell)({
     padding: "12px",
@@ -26,7 +26,7 @@ const RequestApprovalhead = () => {
 
   useEffect(() => {
     axios
-      .get(`http://localhost:5000/requests/admin-approval`)
+      .get(`http://localhost:5000/requestsApprovalAdmin/${division}`)
       .then((res) => setRequests(res.data))
       .catch((err) => console.error(err));
   }, [division]);
@@ -48,20 +48,25 @@ const RequestApprovalhead = () => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {requests.map((req, index) => (
-            <TableRow key={req.user_id}>
+          {requests.map((request, index) => (
+            <TableRow key={request.user_id}>
               <StyledTableCell>{index + 1}</StyledTableCell>
-              <StyledTableCell>{req.full_name}</StyledTableCell>
-              <StyledTableCell>{req.total_requests}</StyledTableCell>
+              <StyledTableCell>{request.full_name}</StyledTableCell>
+              <StyledTableCell>{request.total_requests}</StyledTableCell>
               <StyledTableCell>
-                {new Date(req.created_at).toLocaleDateString()}
+                {new Date(request.created_at).toLocaleDateString()}
               </StyledTableCell>
-
-              <StyledTableCell>{req.division_name}</StyledTableCell>
+              <StyledTableCell>{request.division_name}</StyledTableCell>
               <StyledTableCell>
                 <Button
                   variant="contained"
-                  onClick={() => navigate(`/requests/${req.request_id}`)}
+                  onClick={() => {
+                    navigate(
+                      `/requestsApprovalAdmin/details/${new Date(
+                        request.created_at
+                      ).toLocaleDateString("en-CA")}`
+                    );
+                  }}
                 >
                   Detail
                 </Button>
@@ -74,4 +79,4 @@ const RequestApprovalhead = () => {
   );
 };
 
-export default RequestApprovalhead;
+export default RequestApprovalAdmin;
